@@ -1,0 +1,2708 @@
+---
+title: "Ecology of the Garden Dormouse (Eliomys quercinus) in West-Flanders: relations with season, habitat and distribution"
+author: "Manuel Van Dooren, Olivier Dochy, Herwig Leirs & Bram Vanden Broecke"
+date: "2023-09-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+
+In this study, we focused on the diet of the garden dormouse in West Flanders, Belgium, using fecal analysis. The province of West Flanders wants to protect their remaining garden dormouse populations and ensure that they can stay at a sustainable level. A detailed study of their diet is currently lacking, but incorporating dietary insights in their species action plan could be useful to improve conservation management in the areas of the region (Dochy et al., 2013). This study was conducted in two distinct environments: an inland nature reserve and a coastal area across different seasons. This design allowed us to examine potential seasonal variations in diet in these two environments, characterized by differing vegetation and soil types.
+
+# 2. Study site
+
+The study was performed in two sites in West Flanders:
+
+-   A woody area (Leiekant-'t Schrijverke)
+
+-   Dune area (Doornpanne)
+
+The locations are marked in the map below
+
+```{r,warning=FALSE}
+# Setup R for the map
+#library(OpenStreetMap)
+library(leaflet)
+
+# Location of the sites
+
+
+# Create Map
+map<-leaflet() %>% 
+  addProviderTiles('Esri.WorldImagery', group = "Satellite") %>%
+  addTiles(group = "OSM") %>% 
+    addMarkers(
+    lng = 3.2203347928348007, lat = 50.808578363587536,
+    label = "Woody area",
+    labelOptions = labelOptions(noHide = T, textsize = "15px")) %>% 
+     addMarkers(
+    lng = 2.6571151692926134, lat = 51.11848006935223,
+    label = "Dune area",
+    labelOptions = labelOptions(noHide = T, textsize = "15px")) %>%
+  # Layers control
+  addLayersControl(
+    baseGroups = c("Satellite", 'OSM'),
+    options = layersControlOptions(collapsed = FALSE))
+
+```
+
+```{r,fig.width=10, fig.height=10}
+map
+```
+
+# 3. Data collection
+
+In both sites, we have collected faeces in nest boxes once per month from May to October.
+
+11 nest boxes were checked for faeces at the woody area, 15 at the dune area. We collected as many faeces as possible during each collecting moment and were put in a freezer (-22°C).
+
+Each faecal dropping was examined and analysed individualy using a stereomicroscope (6-50x) and tweezers. Food items were categorized based on previous research pictures (Kuipers et al., 2010), use of literature and self-captured/picked reference material.
+
+The raw data is shown below
+
+```{r,warning=FALSE, message=FALSE}
+# Setup R
+library(ggplot2)
+library(DT)
+library(data.table)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(effects)
+library(DHARMa)
+library(lsmeans)
+library(png)
+library(grid)
+library(patchwork)
+library(tidyr)
+library(knitr)
+
+# Set working directory
+setwd("C:/Users/bravdnbr/OneDrive - UGent/UGent-PC/Bravdnbr/Documents/PhD/Word doc for publications/Eikelmuis")
+
+# read in the data
+RawDat <- as.data.frame (read.table("RawData.txt",header=T))
+```
+
+Let's look at the table
+
+```{r,warning=FALSE}
+DT::datatable(RawDat)
+```
+
+Let's take a look at how many fecal samples were collected
+
+```{r}
+table(RawDat$AREA)
+```
+
+We collected a total of 671 faecal samples, 261 in the dune area and 411 in the woody area.
+
+Let's have a quick look at how the numbers of collected faecal samples varied over time.
+
+```{r,fig.width=10, fig.height=10,warning=FALSE}
+# create the table & put in a dataframa
+A<-table(RawDat$AREA,RawDat$SEASON)
+AA <- as.data.frame(A)
+
+# Make the plot
+ggplot()+
+  geom_point(data=AA,aes(x=Var2, y= Freq,group=Var1,col=Var1),size=5)+
+  geom_line(data=AA,aes(x=Var2, y= Freq,group=Var1,col=Var1),size=2)+
+  ylab("Number of collected faeces")+xlab("Month")+
+  scale_x_discrete(labels = c("May", "June", "July", "August", "September", "October"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(col = "Area")
+
+```
+
+# 4. Analysis
+
+The analysis will be done using the proportions of presence in the all fecal samples per nest box, per collection period.
+
+We determined a wide variety of food items, and some of them are quite rare. So we will need to first take a look at the presence of the different food items in the whole dataset.
+
+## 4.1. Data Selection
+
+Let's take a look at the proportion of the different food items in the whole dataset
+
+```{r,fig.width=10, fig.height=10,warning=FALSE}
+# We want to do this separately for the two areas. So first, we need to divide the dataset into the two different areas
+RawDat_Woody <- subset(RawDat, AREA == "Woody") 
+RawDat_Dune  <- subset(RawDat, AREA == "Dune") 
+
+# Now let's calculate the proportions of the different food items on the whole dataset
+
+# But first, we'll create a new dataset to store everything in
+Prop <- c(1:21) # to store the proportions
+SE   <- c(1:21) # to store the standard error in
+Area <- c(1:21) # To store the area name
+name <- c(1:21) # Name of the food item
+
+# Place it together in a dataframe
+Prop_data <- cbind(name,Prop,SE,Area) # Bind together
+Prop_data <- as.data.frame(Prop_data) # set it as a dataframe
+
+# Let's start first with the woody area
+Prop_data_Woody <- Prop_data # Create this dataframe first. We will later place it together with the other one
+
+# Set the length
+A <- (length(names(RawDat_Woody)))-4
+
+# run the loop
+for (i in 1:A){
+  Prop_data_Woody$name[i] <- names(RawDat_Woody)[i+4]
+  Prop_data_Woody$Prop[i] <- sum(RawDat_Woody[,i+4])/nrow(RawDat_Woody)
+  Prop_data_Woody$SE[i]   <- sqrt(((sum(RawDat_Woody[,i+4])/nrow(RawDat_Woody)) * (1 - (sum(RawDat_Woody[,i+4])/nrow(RawDat_Woody)))) / nrow(RawDat_Woody))
+  Prop_data_Woody$Area[i] <- RawDat_Woody$AREA[i]
+}
+
+
+# Now do the dune area
+Prop_data_Dune <- Prop_data # Create this dataframe first. We will later place it together with the other one
+
+# Set the length
+A <- (length(names(RawDat_Dune)))-4
+
+# run the loop
+for (i in 1:A){
+  Prop_data_Dune$name[i] <- names(RawDat_Dune)[i+4]
+  Prop_data_Dune$Prop[i] <- sum(RawDat_Dune[,i+4])/nrow(RawDat_Dune)
+  Prop_data_Dune$SE[i]   <- sqrt(((sum(RawDat_Dune[,i+4])/nrow(RawDat_Dune)) * (1 - (sum(RawDat_Dune[,i+4])/nrow(RawDat_Dune)))) / nrow(RawDat_Dune))
+  Prop_data_Dune$Area[i] <- RawDat_Dune$AREA[i]
+}
+
+# Now let's combine both datasets together and plot it
+Prop_Dat_ALL <- rbind(Prop_data_Woody,Prop_data_Dune)
+
+# Good. Now we want to separate it by aniam and plant food items
+Prop_Dat_ALL$Category <- ifelse(Prop_Dat_ALL$name %in% c("FRUIT_PEEL_OR_PEEL", "BRAMBLES","STAMEN_", "GREEN_PLANT_PARTS","OTHER_SEEDS"), "Plant", "Animal")
+
+# Now separate them, to create two different plots
+Prop_Dat_ALL_Plant <- subset(Prop_Dat_ALL, Category == "Plant")
+Prop_Dat_ALL_Animal <- subset(Prop_Dat_ALL, Category == "Animal") 
+
+# Arrange the data frame based on Prop in descending order
+Prop_Dat_ALL_Plant <- Prop_Dat_ALL_Plant[order(-Prop_Dat_ALL_Plant$Prop),]
+Prop_Dat_ALL_Animal <- Prop_Dat_ALL_Animal[order(-Prop_Dat_ALL_Animal$Prop),]
+
+# Create the bar plots
+# Plant
+PlotA <- ggplot(Prop_Dat_ALL_Plant, aes(x = reorder(name, -Prop), y = Prop, fill = Area)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Plant presence in all faecal samples",
+       x = "",
+       y = "Proportion of occurence") +
+  theme_minimal() +
+  geom_errorbar(aes(ymin = Prop - SE, ymax = Prop + SE), position = position_dodge(width = 0.9), width = 0.25) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(legend.position=c(.9,.75) )+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"), 
+                    labels = c("Dune (N=261)","Woody (N=411)")) + 
+  scale_x_discrete(labels = c(
+                       "FRUIT_PEEL_OR_PEEL" = "Fruit parts",
+                       "BRAMBLES" = "Brambles",
+                       "STAMEN_"  = "Stamen",
+                       "GREEN_PLANT_PARTS" = "Green plant parts",
+                       "OTHER_SEEDS" = "Other seeds"))
+
+
+PlotB <- ggplot(Prop_Dat_ALL_Animal, aes(x = reorder(name, -Prop), y = Prop, fill = Area)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Animal presence in all faecal samples",
+       x = "",
+       y = "Proportion of occurence") +
+  theme_minimal() +
+  geom_errorbar(aes(ymin = Prop - SE, ymax = Prop + SE), position = position_dodge(width = 0.9), width = 0.25) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_x_discrete(labels = c(
+                       "UNDETERMINED"  = "Undetermined",
+                       "HAIRS" = "Hairs",
+                       "DIPLOPODA" = "Diplopoda",
+                       "COLEOPTERA" = "Coleoptera",
+                       "GASTROPODA" = "Gastropoda",
+                       "OPILIONES" = "Opiliones",
+                       "ORTHOPTERA" = "Orthoptera",
+                       "HEMIPTERA__" = "Hemiptera",
+                       "ARANEAE" = "Aranea",
+                       "AVES" = "Aves",
+                       "DERMAPTERA" = "Dermaptera",
+                       "HYMENOPTERA" = "Hymenoptera",
+                       "ISOPODA"  = "Isopoda",
+                       "DIPTERA"  = "Diptera",
+                       "MAMMALIA" = "Mammalia",
+                       "PSEUDOSCORPIONES" = "Pseudoscorpiones"))+
+  theme(legend.position = "none") 
+
+# Place them together
+(PlotA/PlotB)  + plot_annotation(tag_levels = 'A')
+
+```
+  
+  
+Let's just show the numbers as well.  
+  
+  
+```{r}
+DT::datatable(Prop_Dat_ALL)
+```
+
+  
+  
+  
+
+
+We're going to delete the Hairs, Undetermined and aves from the dataset first, because they cannot be used further and are biologically irrelevant.
+
+```{r,fig.width=10, fig.height=10,warning=FALSE}
+# Remove the Hairs and Undetermined from the dataset
+Prop_Dat_ALL_Animal <- subset(Prop_Dat_ALL_Animal, !(name == "HAIRS")) # Remove Hairs
+Prop_Dat_ALL_Animal <- subset(Prop_Dat_ALL_Animal, !(name == "UNDETERMINED")) # remove undetermined
+Prop_Dat_ALL_Animal <- subset(Prop_Dat_ALL_Animal, !(name == "AVES")) # remove undetermined
+
+
+PlotB <- ggplot(Prop_Dat_ALL_Animal, aes(x = reorder(name, -Prop), y = Prop, fill = Area)) +
+   geom_bar(stat = "identity", position = "dodge", alpha = ifelse(Prop_Dat_ALL_Animal$Prop < 0.10, 0.5, 1)) +
+  labs(title = "Animal presence in all faecal samples",
+       x = "",
+       y = "Proportion of occurence") +
+  theme_minimal() +
+  geom_errorbar(aes(ymin = Prop - SE, ymax = Prop + SE), position = position_dodge(width = 0.9), width = 0.25) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_x_discrete(labels = c(
+                       "UNDETERMINED"  = "Undetermined",
+                       "HAIRS" = "Hairs",
+                       "DIPLOPODA" = "Diplopoda",
+                       "COLEOPTERA" = "Coleoptera",
+                       "GASTROPODA" = "Gastropoda",
+                       "OPILIONES" = "Opiliones",
+                       "ORTHOPTERA" = "Orthoptera",
+                       "HEMIPTERA__" = "Hemiptera",
+                       "ARANEAE" = "Aranea",
+                       "AVES" = "Aves",
+                       "DERMAPTERA" = "Dermaptera",
+                       "HYMENOPTERA" = "Hymenoptera",
+                       "ISOPODA"  = "Isopoda",
+                       "DIPTERA"  = "Diptera",
+                       "MAMMALIA" = "Mammalia",
+                       "PSEUDOSCORPIONES" = "Pseudoscorpiones"))+
+  theme(legend.position = "none") 
+
+PlotA <- ggplot(Prop_Dat_ALL_Plant, aes(x = reorder(name, -Prop), y = Prop, fill = Area)) +
+     geom_bar(stat = "identity", position = "dodge", alpha = ifelse(Prop_Dat_ALL_Plant$Prop < 0.10, 0.5, 1)) +
+  labs(title = "Plant presence in all faecal samples",
+       x = "",
+       y = "Proportion of occurence") +
+  theme_minimal() +
+  geom_errorbar(aes(ymin = Prop - SE, ymax = Prop + SE), position = position_dodge(width = 0.9), width = 0.25) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(legend.position=c(.9,.75) )+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"), 
+                    labels = c("Dune (N=261)","Woody (N=411)")) + 
+  scale_x_discrete(labels = c(
+                       "FRUIT_PEEL_OR_PEEL" = "Fruit parts",
+                       "BRAMBLES" = "Brambles",
+                       "STAMEN_"  = "Stamen",
+                       "GREEN_PLANT_PARTS" = "Green plant parts",
+                       "OTHER_SEEDS" = "Other seeds"))
+
+# Place them together
+(PlotA/PlotB)  + plot_annotation(tag_levels = 'A')
+
+```
+
+We decided to continue only with the food items that are present in at least 10% of the fecal samples in either of the two areas.
+
+For the plant materials these are:
+
+-   Fruit parts
+
+-   Brambles
+
+-   Stamen
+
+-   Green plant parts
+
+For the animal parts, these are:
+
+-   Coleoptera
+
+-   Diplopoda
+
+-   Gastropoda
+
+-   Opiliones
+
+-   Orthoptera
+
+-   Aranea
+
+We also decided to remove Hemiptera from further analysis. This because there were no Hemiptera found in the dune area.
+
+Good. Now we can start with the real analysis.
+
+## 4.2. Data Preparation
+
+First thing that we need to do, is calculate the proportion of these food item categories per collection period ( = number of faecal samples containing a certain food item category/ total number of faecal samples analysed in that specific collection period )
+
+```{r}
+# Create a new column of 1. This represents 1 fecal dropping
+RawDat$Numb <- 1
+
+# convert dataframe to data.table
+RawDat <- data.table (RawDat, key="COMB")
+
+# create group standardized outcome variable
+RawDat[ ,Prop_Green_Plant := (sum(GREEN_PLANT_PARTS)/sum(Numb)) , "COMB"]         # Green plant parts
+RawDat[ ,Prop_Fruit := (sum(FRUIT_PEEL_OR_PEEL)/sum(Numb)) , "COMB"]              # Fruit
+RawDat[ ,Prop_Brambles := (sum(BRAMBLES)/sum(Numb)) , "COMB"]                     # Brambles
+RawDat[ ,Prop_Stamen := (sum(STAMEN_)/sum(Numb)) , "COMB"]                        # Stamen
+
+RawDat[ ,Prop_Coleoptera := (sum(COLEOPTERA)/sum(Numb)) , "COMB"]                 # Coleoptera 
+RawDat[ ,Prop_Diplopoda := (sum(DIPLOPODA)/sum(Numb)) , "COMB"]                   # Diplopoda
+RawDat[ ,Prop_Gastropoda := (sum(GASTROPODA)/sum(Numb)) , "COMB"]                 # Gastropoda
+RawDat[ ,Prop_Opiliones := (sum(OPILIONES)/sum(Numb)) , "COMB"]                   # Opiliones  
+RawDat[ ,Prop_Orthoptera := (sum(ORTHOPTERA)/sum(Numb)) , "COMB"]                 # Orthoptera
+RawDat[ ,Prop_Araneae := (sum(ARANEAE)/sum(Numb)) , "COMB"]                       # Araneae 
+
+RawDat[ ,Fecal_Tot := (sum(Numb)) , "COMB"]                                       # Number of fecal samples that were collected
+
+# Convert back to dataframe
+RawDat <- as.data.frame(RawDat)
+
+# Keep only one line per nestbox, per trapping period
+Single_DataSet <- RawDat %>%
+  distinct(COMB, .keep_all = TRUE)
+
+# Put season and nestbox as a factor in the model
+Single_DataSet$SEASON <- as.factor(Single_DataSet$SEASON )
+Single_DataSet$NESTBOX <- as.factor(Single_DataSet$NESTBOX )
+```
+
+Good, this also worked.
+
+Now let's take a closer look at the whole dataset.
+
+First, we'll look at the histograms of the different food items.
+
+```{r,fig.width=10, fig.height=10,warning=FALSE}
+# Histogram creation
+
+# Plants
+A1 <- ggplot(Single_DataSet,aes(x=Prop_Green_Plant, fill=AREA))+ 
+  geom_histogram(col = "black", position = "dodge") +
+  xlab("")+ggtitle("Green plant")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+   theme(legend.position=c(.9,.75) )+xlim(0,1)
+
+A2 <- ggplot(Single_DataSet,aes(x=Prop_Fruit, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Fruit")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A3 <- ggplot(Single_DataSet,aes(x=Prop_Brambles, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Brambles")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A4 <- ggplot(Single_DataSet,aes(x=Prop_Stamen, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Stamen")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+# animals
+A5 <- ggplot(Single_DataSet,aes(x=Prop_Coleoptera , fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Coleoptera")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A6 <- ggplot(Single_DataSet,aes(x=Prop_Diplopoda, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Diplopoda")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A7 <- ggplot(Single_DataSet,aes(x=Prop_Gastropoda, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Gastropoda")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A8 <- ggplot(Single_DataSet,aes(x=Prop_Opiliones, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Opiliones")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A9 <- ggplot(Single_DataSet,aes(x=Prop_Orthoptera, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Orthoptera")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+A10 <- ggplot(Single_DataSet,aes(x=Prop_Araneae, fill=AREA))+geom_histogram(col="black", position="dodge")+
+  xlab("")+ggtitle("Araneae")+scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  theme(legend.position = "none") +xlim(0,1)
+
+
+(A1+A2)/(A3+A4)/(A5+A6)/(A7+A8)/(A9+A10)
+
+```
+
+There are some food items with many zero's. Something we need to remember for later.
+
+Now let's look at the distribution of the collection of the different nestboxes in the different seasons.
+
+```{r}
+Single_DataSet$TT <- 1 # for the pivot tabke
+
+pivot_table <- Single_DataSet %>%
+  group_by(SEASON, NESTBOX) %>%
+  summarise(Count = sum(TT, na.rm = TRUE)) %>%
+  pivot_wider(names_from = SEASON, values_from = Count)
+
+kable(pivot_table, format = "markdown")
+
+```
+
+ohooow, there seems that there are just three datapoint in October (season 6). THis can cause some issues (it does when we performed the pilot analysis).
+
+We therefore decided to pool season 5 and 6 together and treat them as one.
+
+So let's change this in the dataset.
+
+```{r}
+Single_DataSet$SEASON[Single_DataSet$SEASON == 6] <- 5
+Single_DataSet$SEASON <- droplevels(Single_DataSet$SEASON)
+```
+
+We are now ready for the analysis
+
+## 4.3. Data Analysis
+
+Now we can start with the actual analysis. We will run a separate GLMM for each food item. We used the following covariates:
+
+**Fixed effects:**
+
+-   Area
+
+-   Season
+
+-   An interaction between Area and Season
+
+**Random effects:**
+
+-   Nest box, which is nested within area.
+
+We also weighted each model with the number of fecal samples that were collected.
+
+**NOTE** All the underlying code is shown in the green plant parts. I will hide all the code used in the other food materials to save time since the underlying code is the same.
+
+### 4.3.1. Plant parts
+
+#### **Green Plant parts**
+
+```{r}
+# Green plant parts
+Single_DataSet$TOT <- Single_DataSet$Prop_Green_Plant * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_GreenPLantParts <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+Let's check first is this a good model
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_GreenPLantParts, plot = T)
+```
+
+Looks good
+
+```{r,warning=FALSE}
+print( summary(Mod_GreenPLantParts ),  correlation = FALSE)
+```
+
+Due to the fact that we have an interaction, we might need to do a post-hoc test.
+
+```{r,warning=FALSE}
+q1<-lsmeans(Mod_GreenPLantParts , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+oke, this is quite confusing. Let's make some matrices from this to make it clearer.
+
+We'll make three different matrices. Two that which will show the differences among the different months within the two areas; and one showing the seasonal differences between the two areas.
+
+```{r,warning=FALSE,fig.width=7, fig.height=8}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+GreenPlant_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+GreenPlant_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+ (GreenPlant_Dune_Matrix / GreenPlant_Woody_Matrix)  + plot_annotation(title = 'Green plant parts - Seasonal variation within the areas')
+
+
+```
+
+```{r,warning=FALSE,fig.width=8, fig.height=8}
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+GreenPlant_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+GreenPlant_D_W_Matrix 
+
+```
+
+Now let's plot the graph
+
+```{r,warning=FALSE,message=FALSE}
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_GreenPLantParts, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Leaf_AI.png")
+
+Plot_GreenplantParts<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Green_Plant,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("May", "June", "July", "August", "September - \n October"))+
+  labs(title = "Groen plant materiaal",
+       x = "",
+       y = "Proportie in dieet")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+Plot_GreenplantParts + coord_cartesian(ylim = c(-0.01, 1.01))
+
+```
+
+Let's add them all together (to have a better overview)
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot1 <- (Plot_GreenplantParts + GreenPlant_D_W_Matrix ) / (GreenPlant_Dune_Matrix+ GreenPlant_Woody_Matrix)
+Plot1 + plot_annotation(tag_levels = 'A')
+```
+
+Good, this really seemed to work.
+
+For the green plant parts we see:
+
+-   In both areas, the proportion of green leaves is high in may and then drops over the seasons. In the woody area, this is more pronounced, where the values in May are significantly higher compared to the other seasons. For the dune area, this is less pronounced and only significant for may versus august and september/october. While May vs June/July are borderline not significant.
+
+-   Between the two areas, we see that only in July green leaves are significantly more present in the dunes
+
+Good! We have made a nice overview and the first model. Let's continue withe the other models. However, I will not include all the code to save space and make this more comprehensible.
+
+#### **Fruit pulp/peel**
+
+```{r}
+# Green plant parts
+Single_DataSet$TOT <- Single_DataSet$Prop_Fruit * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Fruit <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Fruit, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Fruit),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Fruit , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Fruit_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Fruit_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Fruit_Dune_Matrix / Fruit_Woody_Matrix)  + plot_annotation(title = 'Fruit peel/pulp - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Fruit_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Fruit_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Fruit, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Fruit_AI.png")
+
+Plot_Fruit<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Fruit,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("May", "June", "July", "August", "September - \n October"))+
+  labs(title = "Fruit (schil/pulp)",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 1, xmax = 2, 
+                    ymin = 0.78, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Fruit
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot2 <- (Plot_Fruit + Fruit_D_W_Matrix ) / (Fruit_Dune_Matrix+ Fruit_Woody_Matrix)
+Plot2 + plot_annotation(tag_levels = 'A') 
+```
+
+For fruits we see:
+
+-   A significant rise in the diet throughout the year, from almost 0 to more than 80%. This is present in both areas.\
+-   For the Dunes, we see that this increases rapidly in the beginning of the year from May - July. After this, the proportion in the diet stabilizes.\
+-   For the Woody area this happens later. Were we see that from May - July it remains rather constantly low. THen there is a sudden and significant increase from July - August and then it stabilizes again.
+
+#### **Brambles**
+
+```{r}
+# Green plant parts
+Single_DataSet$TOT <- Single_DataSet$Prop_Brambles * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Brambles <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Brambles, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Brambles),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Brambles , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Brambles_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Brambles_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Brambles_Dune_Matrix / Brambles_Woody_Matrix)  + plot_annotation(title = 'Brambles - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Brambles_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Brambles_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Brambles, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Brambles_AI.png")
+
+Plot_Brambles<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Brambles,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("Mei", "Juni", "Juli", "Augustus", "September - \n Oktober"))+
+  labs(title = "Bramen",
+       x = "",
+       y = "Proportie in dieet")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.79, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Brambles
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot3 <- (Plot_Brambles + Brambles_D_W_Matrix ) / (Brambles_Dune_Matrix+ Brambles_Woody_Matrix)
+Plot3 + plot_annotation(tag_levels = 'A') 
+```
+
+For Brambles we see:
+
+-   A quadratic relationship in both areas. Where the proportion of brambles increases from May - June, peaks in July-August and then decreases again.
+-   This is, however, only significant for the woody area, and not for the dune area.
+
+#### **Stamen**
+
+```{r}
+# Stamen
+Single_DataSet$TOT <- Single_DataSet$Prop_Stamen * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Stamen<- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Stamen, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Stamen),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Stamen , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Stamen_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Stamen_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Stamen_Dune_Matrix / Stamen_Woody_Matrix)  + plot_annotation(title = 'Stamen - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Stamen_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Stamen_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Stamen, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Flower_AI.png")
+
+Plot_Stamen<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Stamen,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("Mei", "Juni", "Juli", "Augustus", "September - \n Oktober"))+
+  labs(title = "Meeldraden",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.8, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Stamen
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot4 <- (Plot_Stamen + Stamen_D_W_Matrix ) / (Stamen_Dune_Matrix+ Stamen_Woody_Matrix)
+Plot4 + plot_annotation(tag_levels = 'A') 
+```
+
+For Stamen we see:
+
+-   A strong difference between the two areas.\
+-   For the Dune area, we see no real variation in the diet through time. it is slightly higher in May, but not significantly
+-   For the woody area, there is a strong decrease from May - July, after which is remains constant.
+-   In May and June, the proportion of stamen in the diet is also significantly higher in the woody area than the dunes.
+
+### 4.3.2. Animal parts
+
+#### **Coleoptera**
+
+```{r}
+# Stamen
+Single_DataSet$TOT <- Single_DataSet$Prop_Coleoptera * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Coleoptera <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Coleoptera, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Coleoptera),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Coleoptera , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Coleoptera_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Coleoptera_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Coleoptera_Dune_Matrix / Coleoptera_Woody_Matrix)  + plot_annotation(title = 'Coleoptera - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Coleoptera_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Coleoptera_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Coleoptera, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Coleoptera_AI.png")
+
+Plot_Coleoptera<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Coleoptera,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("May", "June", "July", "August", "September - \n October"))+
+  labs(title = "Kevers",
+       x = "",
+       y = "Proportie in dieet")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Coleoptera
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot5 <- (Plot_Coleoptera + Coleoptera_D_W_Matrix ) / (Coleoptera_Dune_Matrix+ Coleoptera_Woody_Matrix)
+Plot5 + plot_annotation(tag_levels = 'A') 
+```
+
+For Coleoptera we see:
+
+-   A very easy pattern. the proportion of coleoptera in the diet remains constant throughout the year and there are no differences between the two areas.
+
+#### **Gastropoda**
+
+```{r}
+# Gastropoda
+Single_DataSet$TOT <- Single_DataSet$Prop_Gastropoda * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Gastropoda <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Gastropoda, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Gastropoda),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Gastropoda , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Gastropoda_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Gastropoda_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Gastropoda_Dune_Matrix / Gastropoda_Woody_Matrix)  + plot_annotation(title = 'Gastropoda - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Gastropoda_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Gastropoda_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Gastropoda, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Gastropoda_AI.png")
+
+Plot_Gastropoda<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Gastropoda,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("May", "June", "July", "August", "September - \n October"))+
+  labs(title = "Slakken",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Gastropoda
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot6 <- (Plot_Gastropoda + Gastropoda_D_W_Matrix ) / (Gastropoda_Dune_Matrix+ Gastropoda_Woody_Matrix)
+Plot6 + plot_annotation(tag_levels = 'A') 
+```
+
+For Gastropoda we see:
+
+-   Significantly more gastropoda is present in the woody area throughout the whole season, except in september/october.
+-   fOR the dune area, the presence remains low and stable
+-   For the woody area, we see that gastropoda in the diet is high and stable from May - July. Then it decreases rapidly and significantly in August and is then not eaten anymore in September/October
+
+#### **Diplopoda**
+
+```{r}
+# Diplopoda
+Single_DataSet$TOT <- Single_DataSet$Prop_Diplopoda * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Diplopoda <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Diplopoda, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Diplopoda),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Diplopoda , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Diplopoda_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Diplopoda_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Diplopoda_Dune_Matrix / Diplopoda_Woody_Matrix)  + plot_annotation(title = 'Diplopoda - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Diplopoda_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Diplopoda_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Diplopoda, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+# set position for the figure
+leaf_x <- 3.5  # Adjust the x-coordinate as needed
+leaf_y <- 0.8  # Adjust the y-coordinate as needed
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Diplopoda_AI.png")
+
+Plot_Diplopoda<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Diplopoda,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("May", "June", "July", "August", "September - \n October"))+
+  labs(title = "Miljoenpoten",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Diplopoda
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot7 <- (Plot_Diplopoda + Diplopoda_D_W_Matrix ) / (Diplopoda_Dune_Matrix+ Diplopoda_Woody_Matrix)
+Plot7 + plot_annotation(tag_levels = 'A') 
+```
+
+For Diplopoda we see:
+
+-   Significantly more diplopoda is present in the dune area than in the woody area.
+-   The presence of diplopoda in the woody area is low and stable.
+-   The presence of diploda decreases slightly in the dune area over time, but not significantly.
+
+#### **Orthoptera**
+
+```{r}
+# Orthoptera
+Single_DataSet$TOT <- Single_DataSet$Prop_Orthoptera * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Orthoptera <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Orthoptera, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Orthoptera),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Orthoptera , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Orthoptera_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Orthoptera_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Orthoptera_Dune_Matrix / Orthoptera_Woody_Matrix)  + plot_annotation(title = 'Orthoptera - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Orthoptera_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Orthoptera_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Orthoptera, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Orthoptera_AI.png")
+
+Plot_Orthoptera<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Orthoptera,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("Mei", "Juni", "Juli", "Augustus", "September - \n Oktober"))+
+  labs(title = "krekels en sprinkhanen",
+       x = "",
+       y = "Proportie in dieet")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Orthoptera
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot8 <- (Plot_Orthoptera + Orthoptera_D_W_Matrix ) / (Orthoptera_Dune_Matrix+ Orthoptera_Woody_Matrix)
+Plot8 + plot_annotation(tag_levels = 'A') 
+```
+
+For Orthoptera we see:
+
+-   a relative low presence in both areas throughout the year.
+-   There is peak in august in the dune area, where the proportion is significantly higher than May-June-July
+
+#### **Opiliones**
+
+```{r}
+# Opiliones
+Single_DataSet$TOT <- Single_DataSet$Prop_Opiliones * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Opiliones <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Opiliones, plot = T)
+```
+
+```{r,warning=FALSE}
+print( summary(Mod_Opiliones),  correlation = FALSE)
+```
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod_Opiliones , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Opiliones_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Opiliones_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Opiliones_Dune_Matrix / Opiliones_Woody_Matrix)  + plot_annotation(title = 'Opiliones - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Opiliones_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Opiliones_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod_Opiliones, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/OPILIONES_AI.png")
+
+Plot_Opiliones<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Opiliones,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("Mei", "Juni", "Juli", "Augustus", "September - \n Oktober"))+
+  labs(title = "Hooiwagens",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Opiliones
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot9 <- (Plot_Opiliones + Opiliones_D_W_Matrix ) / (Opiliones_Dune_Matrix+ Opiliones_Woody_Matrix)
+Plot9 + plot_annotation(tag_levels = 'A') 
+```
+
+For Opiliones we see:
+
+-   That the presence remains stable in both areas.
+-   There is consistently more opiliones present in the woody area, but this is not statistically significant.
+
+#### **Araneae**
+
+```{r}
+# Araneae
+Single_DataSet$TOT <- Single_DataSet$Prop_Araneae * Single_DataSet$Fecal_Tot # count the number of times it was present in the nestbox
+
+# Create the model
+Mod_Araneae <- glmer(cbind(TOT, Fecal_Tot) ~
+                             AREA + 
+                             SEASON + 
+                             AREA : SEASON+
+                             (1|AREA/NESTBOX), 
+                             data = Single_DataSet,
+                             family=binomial)
+
+```
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod_Araneae, plot = T)
+```
+
+Oepsie, this does not look good. There is some issue with the dispersion.
+
+```{r,warning=FALSE}
+testDispersion(simulationOutput)
+```
+
+Jup, totally.
+
+So let's make a model that could fix this
+
+```{r}
+library(glmmTMB)
+Mod1 <-glmmTMB(cbind(TOT, Fecal_Tot)  ~
+                 AREA + 
+                 SEASON + 
+                 AREA : SEASON + (1|AREA/NESTBOX),ziformula = ~1,
+               data = Single_DataSet, 
+               family = "binomial")
+
+```
+
+Is it solved?
+
+```{r}
+simulationOutput <- simulateResiduals(fittedModel = Mod1, plot = T)
+testDispersion(simulationOutput)
+```
+
+Jup!
+
+Let's create the plots.
+
+```{r,warning=FALSE,echo=FALSE}
+q1<-lsmeans(Mod1 , pairwise ~ SEASON*AREA, adjust="none") 
+AA <-as.data.frame(q1$contrasts)
+
+DT::datatable(AA)
+```
+
+```{r,warning=FALSE,fig.width=7, fig.height=8,echo=FALSE}
+# First, we need to separate the columns. We'll do this based on the spaces
+split_contrast <- strsplit(as.character(AA$contrast), " ")
+
+# Now we'll add them back in the dataset (so we can do some subsetting)
+AA[c("Season_Contrast1","Area_Contrast1","irrelevant Line","Season_Contrast2","Area_Contrast2")] <- do.call(rbind, split_contrast)
+
+# Now let's create the matrices. We'll do the dunes first.
+# subset the dataset so we only keep the dune data. 
+Dune_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Dune", ]
+
+# Make the plot
+Araneae_Dune_Matrix <- ggplot(data = Dune_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+   geom_tile(color = "white", alpha = ifelse(Dune_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Dune_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+               size = ifelse(Dune_Subset$p.value < 0.05, 4.5, 3.5), 
+              fontface = ifelse(Dune_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Dune area")
+
+
+# Now let's do it for the forest
+# subset the dataset so we only keep the Woodydata. 
+Woody_Subset <- AA[AA$Area_Contrast1 == "Woody" & AA$Area_Contrast2 == "Woody", ]
+
+
+Araneae_Woody_Matrix <- ggplot(data = Woody_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+    geom_tile(color = "white", alpha = ifelse(Woody_Subset$p.value > 0.05, 0.3, 0.9)) +  # Adjust alpha based on p-value
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(Woody_Subset$p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(Woody_Subset$p.value < 0.05, 4.5, 3.5),
+            fontface = ifelse(Woody_Subset$p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                             "SEASON5" = "September/ October"))+
+  ggtitle("Monthly variation within Woody area")
+
+
+# (Opiliones_Dune_Matrix / Opiliones_Woody_Matrix)  + plot_annotation(title = 'Opiliones - Seasonal variation within the areas')
+
+
+# Nice. Now let's compare the dune-vs-woody
+
+# subset the dataset so we only keep the dune-woody
+D_W_Subset <- AA[AA$Area_Contrast1 == "Dune" & AA$Area_Contrast2 == "Woody", ]
+
+# Make the plot
+Araneae_D_W_Matrix <- ggplot(data = D_W_Subset, aes(x = Season_Contrast2, y = Season_Contrast1, fill = factor(sign(estimate)))) +
+ geom_tile(color = "white", alpha = ifelse(D_W_Subset$p.value > 0.05, 0.3, 0.9))  +
+   scale_fill_manual(values = c("blue", "red"), name = "Estimate",
+                    labels = c("Negative", "Positive")) +
+   geom_text(
+    aes(label = paste(round(estimate, 2), "±", round(SE, 2), "\n(", ifelse(p.value < 0.001, "<0.001", round(p.value, 3)), ")")),
+              color = ifelse(D_W_Subset $p.value < 0.05, "white", "black"),  # Change text color based on significance
+                size = ifelse(D_W_Subset$p.value < 0.05, 4.5, 3.5),fontface = ifelse(D_W_Subset $p.value < 0.05, "bold", "plain") )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+   theme(legend.position = "none",
+        strip.text.x = element_text(size = 12))+
+  scale_y_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September - \n October"))+
+  scale_x_discrete(labels=c("SEASON1" = "May", 
+                            "SEASON2" = "June", 
+                            "SEASON3" = "July", 
+                            "SEASON4" = "August", 
+                            "SEASON5" = "September /n October"))+
+  ylab("Dune")+xlab("Woody")+ggtitle("Monthly variation between areas")
+
+# make the plot
+# Opiliones_D_W_Matrix 
+ 
+
+
+
+
+# perform the post-hoc analysis
+q <-as.data.frame( effect(c("SEASON","AREA"), Mod1, KR=T))
+q$SEASON <- as.numeric(q$SEASON) # set season as numeric (for the plot)
+q$fit2 <- exp(qlogis(q$fit)) # calculate the fit to the response scale
+q$se2 <- exp(qlogis(q$se))  # calculate the se to the response scale
+
+
+# Load the leaf image 
+leaf_image <- readPNG("pictures/Spider1_AI.png")
+
+Plot_Araneae<-ggplot()+
+  geom_line(data=q,aes(x =  SEASON , y = fit2,group=AREA,col=AREA))+
+  geom_jitter(data=Single_DataSet,aes(x=as.numeric(SEASON),y=Prop_Araneae,col=AREA),width=0.1,alpha=0.5)+
+  geom_ribbon(data=q,aes(x =  SEASON , ymin = fit2-se2, ymax=fit2+se2,group=AREA,fill=AREA),alpha=0.25)+
+  scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"))+
+ scale_y_continuous(breaks = seq(0, 1, by = 0.1), labels = scales::percent(seq(0, 1, by = 0.1))) +  
+  theme_minimal()+
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:5, labels = c("Mei", "Juni", "Juli", "Augustus", "September - \n Oktober"))+
+  labs(title = "Spinnen",
+       x = "",
+       y = "Proportion of occurence")+
+  theme(plot.title = element_text(hjust = 0.5))+
+  theme( panel.grid.minor.x = element_blank(),
+          panel.grid.minor.y = element_blank())+
+   annotation_custom(rasterGrob(leaf_image, interpolate = TRUE), 
+                    xmin = 4, xmax = 5, 
+                    ymin = 0.75, ymax = 1.05)+
+   coord_cartesian(ylim = c(-0.01, 1.01))
+
+# plot the graph 
+# Plot_Opiliones
+
+```
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot10 <- (Plot_Araneae + Araneae_D_W_Matrix ) / (Araneae_Dune_Matrix+ Araneae_Woody_Matrix)
+Plot10 + plot_annotation(tag_levels = 'A') 
+```
+
+For Aranea we see:
+
+-   Only in May, the proportion of aranea is larger in the woody area. THen it decreases and remains stable.
+-   In the dune area, this remains rather stable and low.
+
+Oke, all of it worked. Pfieuw.
+  
+  
+  
+  
+  
+  
+### 4.3.3. Plotting  
+  
+  
+  
+  
+Let's add the figures together and prepare them to be included in the paper
+  
+  
+  
+First, we'll do the plant parts  
+
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+Plot_GreenplantParts2 <- Plot_GreenplantParts+
+  theme(legend.position = "none",
+        axis.text.x=element_blank(), 
+      axis.ticks.x=element_blank())
+
+Plot_Fruit2 <- Plot_Fruit+ ylab("")+
+  theme(legend.position = "none",
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())
+
+Plot_Brambles2 <- Plot_Brambles + xlab("Maand")+
+  theme(legend.position = "none")
+
+Plot_Stamen2 <- Plot_Stamen + ylab("")+xlab("Maand")+
+  theme(legend.position=c(0.85,.6),
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())+labs(fill = "Gebied")+labs(col= "Gebied")+
+   scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"),
+                    name = "Gebied", 
+                    labels = c("Duinen", "Bos")) +
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"),
+                     name = "Gebied", 
+                     labels = c("Duinen", "Bos"))
+
+FOODITEMSPLOT <- ((Plot_GreenplantParts2+Plot_Fruit2)/(Plot_Brambles2+Plot_Stamen2))+
+  plot_annotation(tag_levels = 'A')
+
+FOODITEMSPLOT 
+
+dev.new()  
+png("Fig_Plant_NED.png",
+    units="in", 
+    width=8, 
+    height=8, 
+    pointsize=10, 
+    res=800)
+FOODITEMSPLOT 
+dev.off()
+
+
+```
+  
+  
+  
+  
+
+now the animal parts
+
+
+
+```{r,warning=FALSE,fig.width=15, fig.height=12}
+
+Plot_Coleoptera2 <- Plot_Coleoptera +
+  theme(legend.position = "none",
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank())
+
+Plot_Gastropoda2 <- Plot_Gastropoda+
+    ylab("")+
+    theme(legend.position = "none",
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())
+
+Plot_Diplopoda2 <- Plot_Diplopoda+
+    ylab("")+
+    theme(legend.position = "none",
+        axis.text.x=element_blank(), 
+        axis.ticks.x=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())
+
+Plot_Orthoptera2 <- Plot_Orthoptera+xlab("Maand")+
+   theme(legend.position = "none")
+
+Plot_Opiliones2 <- Plot_Opiliones+xlab("Maand")+
+   ylab("")+
+    theme(legend.position = "none",
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())
+
+Plot_Araneae2 <- Plot_Araneae+xlab("Maand")+
+   ylab("")+
+    theme(legend.position=c(0.85,.6),
+        axis.text.y=element_blank(), 
+        axis.ticks.y=element_blank())+labs(fill = "Gebied")+labs(col= "Gebied")+
+   scale_fill_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"),
+                    name = "Gebied", 
+                    labels = c("Duinen", "Bos")) +
+  scale_color_manual(values = c("Woody" = "#00BA38", "Dune" = "#F8766D"),
+                     name = "Gebied", 
+                     labels = c("Duinen", "Bos"))
+
+
+
+
+ANIMALITEMSPLOT <- ((Plot_Coleoptera2|Plot_Gastropoda2|Plot_Diplopoda2)/(Plot_Orthoptera2|Plot_Opiliones2|Plot_Araneae2))+
+  plot_annotation(tag_levels = 'A')
+                     
+                     
+ANIMALITEMSPLOT                  
+                     
+
+
+dev.new()  
+png("Fig_Animal_NED.png",
+    units="in", 
+    width=12, 
+    height=8, 
+    pointsize=10, 
+    res=800)
+ANIMALITEMSPLOT                  
+dev.off()
+
+``` 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
